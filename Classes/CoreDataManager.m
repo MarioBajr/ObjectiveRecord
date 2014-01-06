@@ -8,13 +8,16 @@
 
 #import "CoreDataManager.h"
 
-@implementation CoreDataManager
-@synthesize managedObjectContext = _managedObjectContext;
-@synthesize managedObjectModel = _managedObjectModel;
-@synthesize persistentStoreCoordinator = _persistentStoreCoordinator;
-@synthesize databaseName = _databaseName;
-@synthesize modelName = _modelName;
+@interface CoreDataManager()
+@property (strong, nonatomic) NSManagedObjectContext *managedObjectContext;
+@property (strong, nonatomic) NSManagedObjectModel *managedObjectModel;
+@property (strong, nonatomic) NSPersistentStoreCoordinator *persistentStoreCoordinator;
+@property (strong, nonatomic) UIManagedDocument *document;
 
+@property (strong, nonatomic) NSMutableArray *responseBlocks;
+@end
+
+@implementation CoreDataManager
 
 + (id)instance {
     return [self sharedManager];
@@ -33,7 +36,7 @@
 #pragma mark - Private
 
 - (NSString *)appName {
-    return [[[NSBundle bundleForClass:[self class]] infoDictionary] objectForKey:@"CFBundleName"];
+    return [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleName"];
 }
 
 - (NSString *)databaseName {
@@ -53,6 +56,73 @@
 
 #pragma mark - Public
 
+- (void)useManagedDocument
+{
+    self.responseBlocks = [NSMutableArray array];
+    
+    NSURL *url = [self applicationDocumentsDirectory];
+    url = [url URLByAppendingPathComponent:[self appName]];
+    
+    void (^__block InitializeDocument)(void) = ^ {
+        self.document = [[UIManagedDocument alloc] initWithFileURL:url];
+        // Set our document up for automatic migrations
+        self.document.persistentStoreOptions = @{NSMigratePersistentStoresAutomaticallyOption : @YES,
+                                                 NSInferMappingModelAutomaticallyOption : @YES};
+    };
+    
+    void (^__block OnDocumentDidLoad)(BOOL) = ^(BOOL success) {
+        if (!success)
+        {
+            //TODO: Add update database support
+            NSError *error;
+            [[NSFileManager defaultManager] removeItemAtURL:url error:&error];
+            
+            InitializeDocument();
+            
+            [self.document saveToURL:url
+                    forSaveOperation:UIDocumentSaveForCreating
+                   completionHandler:^(BOOL success){
+                       if (success)
+                           [self documentIsReady];
+                   }];
+        }
+        else
+        {
+            [self documentIsReady];
+        }
+    };
+    
+    InitializeDocument();
+    
+    if ([[NSFileManager defaultManager] fileExistsAtPath:url.path])
+    {
+        [self.document openWithCompletionHandler:OnDocumentDidLoad];
+    }
+    else
+    {
+        [self.document saveToURL:url
+                forSaveOperation:UIDocumentSaveForCreating
+               completionHandler:OnDocumentDidLoad];
+    }
+}
+
+- (void)documentIsReady
+{
+    if (self.document.documentState == UIDocumentStateNormal)
+    {
+        self.managedObjectContext = self.document.managedObjectContext;
+    }
+    
+    for (dispatch_block_t block in self.responseBlocks)
+        block();
+    self.responseBlocks = nil;
+}
+
+- (void)addStorageCompletionHandler:(void(^)(void))completion
+{
+    [self.responseBlocks addObject:completion];
+}
+
 - (NSManagedObjectContext *)managedObjectContext {
     if (_managedObjectContext) return _managedObjectContext;
     
@@ -66,21 +136,9 @@
 - (NSManagedObjectModel *)managedObjectModel {
     if (_managedObjectModel) return _managedObjectModel;
     
-    NSURL *modelURL = [[NSBundle bundleForClass:[self class]] URLForResource:[self modelName] withExtension:@"momd"];
+    NSURL *modelURL = [[NSBundle mainBundle] URLForResource:[self modelName] withExtension:@"momd"];
     _managedObjectModel = [[NSManagedObjectModel alloc] initWithContentsOfURL:modelURL];
     return _managedObjectModel;
-}
-
-- (NSPersistentStoreCoordinator *)persistentStoreCoordinator {
-    if (_persistentStoreCoordinator) return _persistentStoreCoordinator;
-    
-    _persistentStoreCoordinator = [self persistentStoreCoordinatorWithStoreType:NSSQLiteStoreType
-                                                                       storeURL:[self sqliteStoreURL]];
-    return _persistentStoreCoordinator;
-}
-
-- (void)useInMemoryStore {
-    _persistentStoreCoordinator = [self persistentStoreCoordinatorWithStoreType:NSInMemoryStoreType storeURL:nil];
 }
 
 - (BOOL)saveContext {
@@ -113,21 +171,6 @@
 
 
 #pragma mark - Private
-
-- (NSPersistentStoreCoordinator *)persistentStoreCoordinatorWithStoreType:(NSString *const)storeType
-                                                                 storeURL:(NSURL *)storeURL {
-    
-    NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[self managedObjectModel]];
-    
-    NSDictionary *options = @{ NSMigratePersistentStoresAutomaticallyOption: @YES,
-                               NSInferMappingModelAutomaticallyOption: @YES };
-
-    NSError *error = nil;
-    if (![coordinator addPersistentStoreWithType:storeType configuration:nil URL:storeURL options:options error:&error])
-        NSLog(@"ERROR WHILE CREATING PERSISTENT STORE COORDINATOR! %@, %@", error, [error userInfo]);
-    
-    return coordinator;
-}
 
 - (NSURL *)sqliteStoreURL {
     NSURL *directory = [self isOSX] ? self.applicationSupportDirectory : self.applicationDocumentsDirectory;

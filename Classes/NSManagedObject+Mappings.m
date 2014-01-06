@@ -21,23 +21,26 @@
     
     NSString *camelCasedProperty = [remoteKey.camelCase stringByReplacingCharactersInRange:NSMakeRange(0, 1)
                                                                                 withString:[[remoteKey substringWithRange:NSMakeRange(0, 1)] lowercaseString]];
-
+    
     NSEntityDescription *desc = [NSEntityDescription entityForName:[self entityName] inManagedObjectContext:[NSManagedObjectContext defaultContext]];
     
     if ([desc propertiesByName][camelCasedProperty]) {
         self.cachedMappings[remoteKey] = camelCasedProperty;
         return camelCasedProperty;
+    } else if ([desc propertiesByName][remoteKey])
+    {
+        [self cachedMappings][remoteKey] = remoteKey;
+        return remoteKey;
     }
-
-    [self cachedMappings][remoteKey] = remoteKey;
-    return remoteKey;
+    
+    return nil;
 }
 
 #pragma mark - Private
 
 + (NSMutableDictionary *)cachedMappings {
     NSMutableDictionary *mappingsForClass = [NSManagedObject sharedMappings][self.class];
-
+    
     if (!mappingsForClass) {
         mappingsForClass = [self mappings].mutableCopy ?: @{}.mutableCopy;
         [NSManagedObject sharedMappings][(id<NSCopying>)self.class] = mappingsForClass;

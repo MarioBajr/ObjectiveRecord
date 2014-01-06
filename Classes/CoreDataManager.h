@@ -12,17 +12,16 @@
 @interface CoreDataManager : NSObject
 
 @property (readonly, nonatomic) NSManagedObjectContext *managedObjectContext;
-@property (readonly, nonatomic) NSManagedObjectModel *managedObjectModel;
-@property (readonly, strong, nonatomic) NSPersistentStoreCoordinator *persistentStoreCoordinator;
+@property (readonly, strong, nonatomic) UIManagedDocument *document;
 
 @property (copy, nonatomic) NSString *databaseName;
 @property (copy, nonatomic) NSString *modelName;
 
-+ (id)instance DEPRECATED_ATTRIBUTE;
 + (instancetype)sharedManager;
 
 - (BOOL)saveContext;
-- (void)useInMemoryStore;
+- (void)useManagedDocument;
+- (void)addStorageCompletionHandler:(void(^)(void))completion;
 
 #pragma mark - Helpers
 
